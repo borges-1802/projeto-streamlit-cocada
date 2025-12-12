@@ -10,7 +10,7 @@ import os
 import json
 import tempfile
 from google.oauth2 import service_account
-
+from google.cloud import bigquery
 
 
 st.set_page_config(
@@ -273,25 +273,20 @@ if not st.session_state.questionario_completo:
 
 
 @st.cache_data(show_spinner=True)
-@st.cache_data(show_spinner=True)
 def carregar_dados():
-    # 1. Recupera a senha das Secrets do Streamlit
+    # 1. Pegar credenciais direto dos Secrets (sem criar arquivo temporário)
     if "gcp_service_account" not in st.secrets:
-        st.error("Secrets não encontradas. Configure [gcp_service_account] no painel do Streamlit.")
+        st.error("Secrets não encontradas.")
         st.stop()
         
-    service_account_info = st.secrets["gcp_service_account"]
+    creds = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"]
+    )
+    
+    # 2. Criar o cliente oficial do BigQuery
+    client = bigquery.Client(credentials=creds, project=BILLING_PROJECT_ID)
 
-    # 2. Cria um arquivo temporário com a chave (O basedosdados precisa de um arquivo físico)
-    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as temp:
-        json.dump(dict(service_account_info), temp)
-        temp.flush()
-        key_path = temp.name  # Salva o caminho do arquivo
-
-    # 3. Define a variável de ambiente (Segurança extra)
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
-
-    # 4. A Query
+    # 3. A Query (Mesma de antes)
     query = f"""
     WITH dados_kmeans AS (
         SELECT * FROM ML.PREDICT(MODEL `{BILLING_PROJECT_ID}.{DATASET_ID}.modelo_kmeans`, 
@@ -315,9 +310,9 @@ def carregar_dados():
       ON k.linha = p.linha AND k.data = p.data
     """
     
-    # 5. Executa a query apontando para o arquivo de chave (from_file)
-    # IMPORTANTE: reauth=False para não tentar abrir navegador
-    df = bd.read_sql(query, billing_project_id=BILLING_PROJECT_ID, from_file=key_path, reauth=False)
+    # 4. Executar e converter para Pandas (Bem mais rápido)
+    job = client.query(query)
+    df = job.to_dataframe()
     
     return df
 
@@ -591,6 +586,12 @@ with aba[2]:
 
 @st.cache_data(show_spinner=True)
 def carregar_mapa():
+    # Autenticação direta
+    creds = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"]
+    )
+    client = bigquery.Client(credentials=creds, project=BILLING_PROJECT_ID)
+
     query_mapa = f"""
     WITH classificacao_do_dia AS (
         SELECT linha, data, centroid_id as cluster_id
@@ -599,13 +600,13 @@ def carregar_mapa():
         WHERE data = '2025-10-15'
     ),
     pontos_gps AS (
-        SELECT
+        SELECT 
             servico as linha,
             latitude,
             longitude,
             timestamp_gps
         FROM `datario.transporte_rodoviario_municipal.gps_onibus`
-        WHERE data = '2025-10-15' # Filtrar por data específica
+        WHERE data = '2025-10-15'
           AND latitude BETWEEN -22.870 AND -22.838
           AND longitude BETWEEN -43.250 AND -43.198
     )
@@ -614,7 +615,9 @@ def carregar_mapa():
     JOIN classificacao_do_dia c ON p.linha = c.linha
     LIMIT 5000
     """
-    return bd.read_sql(query_mapa, billing_project_id=BILLING_PROJECT_ID)
+    
+    job = client.query(query_mapa)
+    return job.to_dataframe()
 
 
 # ======================================================================
