@@ -312,7 +312,7 @@ def carregar_dados():
     
     # 4. Executar e converter para Pandas (Bem mais rápido)
     job = client.query(query)
-    df = job.to_dataframe()
+    df = job.to_dataframe(create_bqstorage_client=False)
     
     return df
 
@@ -617,7 +617,7 @@ def carregar_mapa():
     """
     
     job = client.query(query_mapa)
-    return job.to_dataframe()
+    return job.to_dataframe(create_bqstorage_client=False)
 
 
 # ======================================================================
