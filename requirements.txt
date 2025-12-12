@@ -1,0 +1,8 @@
+streamlit
+basedosdados
+pandas
+plotly
+matplotlib
+seaborn
+google-cloud-bigquery
+db-dtypes
