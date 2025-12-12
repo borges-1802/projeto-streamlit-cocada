@@ -273,17 +273,35 @@ if not st.session_state.questionario_completo:
 
 
 @st.cache_data(show_spinner=True)
+@st.cache_data(show_spinner=True)
 def carregar_dados():
+    # 1. Recupera a senha das Secrets do Streamlit
+    if "gcp_service_account" not in st.secrets:
+        st.error("Secrets não encontradas. Configure [gcp_service_account] no painel do Streamlit.")
+        st.stop()
+        
+    service_account_info = st.secrets["gcp_service_account"]
+
+    # 2. Cria um arquivo temporário com a chave (O basedosdados precisa de um arquivo físico)
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as temp:
+        json.dump(dict(service_account_info), temp)
+        temp.flush()
+        key_path = temp.name  # Salva o caminho do arquivo
+
+    # 3. Define a variável de ambiente (Segurança extra)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+
+    # 4. A Query
     query = f"""
     WITH dados_kmeans AS (
-        SELECT * FROM ML.PREDICT(MODEL `{BILLING_PROJECT_ID}.{DATASET_ID}.modelo_kmeans`,
+        SELECT * FROM ML.PREDICT(MODEL `{BILLING_PROJECT_ID}.{DATASET_ID}.modelo_kmeans`, 
             (SELECT * FROM `{BILLING_PROJECT_ID}.{DATASET_ID}.tabela_resumo` WHERE tempo_total_fundao IS NOT NULL))
     ),
     dados_pca AS (
-        SELECT * FROM ML.PREDICT(MODEL `{BILLING_PROJECT_ID}.{DATASET_ID}.modelo_pca`,
+        SELECT * FROM ML.PREDICT(MODEL `{BILLING_PROJECT_ID}.{DATASET_ID}.modelo_pca`, 
             (SELECT * FROM `{BILLING_PROJECT_ID}.{DATASET_ID}.tabela_resumo` WHERE tempo_total_fundao IS NOT NULL))
     )
-    SELECT
+    SELECT 
         k.linha,
         k.data,
         k.tempo_total_fundao,
@@ -296,7 +314,12 @@ def carregar_dados():
     JOIN dados_pca p
       ON k.linha = p.linha AND k.data = p.data
     """
-    return bd.read_sql(query, billing_project_id=BILLING_PROJECT_ID)
+    
+    # 5. Executa a query apontando para o arquivo de chave (from_file)
+    # IMPORTANTE: reauth=False para não tentar abrir navegador
+    df = bd.read_sql(query, billing_project_id=BILLING_PROJECT_ID, from_file=key_path, reauth=False)
+    
+    return df
 
 
 with st.spinner("🔄 Carregando dados do BigQuery..."):
