@@ -14,7 +14,7 @@ from google.cloud import bigquery
 
 
 st.set_page_config(
-    page_title="Projeto Final de COACADA",
+    page_title="Projeto Final de COCADA",
     page_icon="🚌",
     layout="wide",
     initial_sidebar_state="expanded"
